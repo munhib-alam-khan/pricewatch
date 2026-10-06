@@ -348,6 +348,12 @@ body::before{content:"";position:absolute;left:0;right:0;top:0;height:140px;back
   .tabs button{padding:6px 11px;font-size:13.5px}
   .band{margin-top:-120px;padding-top:120px}
 }
+.plusalt{color:var(--ink-2);font-weight:600;white-space:nowrap}
+.altstep{opacity:.92;border-top:1px dashed rgba(23,21,15,.18)}
+.altstep .track span{opacity:.45}
+.tag.size{background:#e9e6ff;color:#3b2fb8}
+.detail>div>span:last-child{white-space:nowrap;padding-left:10px}
+.swapln small{display:block;color:var(--ink-2);font-size:12px;margin-top:2px}
 </style>
 </head>
 <body>
@@ -572,9 +578,11 @@ function search(q,limit=24){
   const w=q.toLowerCase().split(/\s+/).filter(Boolean);
   if(!w.length)return[];
   return D.products.filter(p=>w.every(x=>(p.name+" "+p.size+" "+p.cat).toLowerCase().includes(x)))
-    .sort((a,b)=>(b.generic?1:0)-(a.generic?1:0)||Object.keys(b.offers).length-Object.keys(a.offers).length).slice(0,limit);
+    .sort((a,b)=>(b.generic?1:0)-(a.generic?1:0)||reach(b)-reach(a)||Object.keys(b.offers).length-Object.keys(a.offers).length).slice(0,limit);
 }
 const prices=p=>Object.values(p.offers).map(o=>o.p);
+const eff=(p,s)=>p.offers[s]||(p.alt&&p.alt[s]?{...p.alt[s],alt:true}:null);   // exact pack, else same product in another size
+const reach=p=>Object.keys(p.offers).length+Object.keys(p.alt||{}).length;
 
 // ---------- BASKET ----------
 let list=[]; const pend={}; let lastQuery="";
@@ -611,7 +619,7 @@ function runSearch(keepScroll){
   $("results").innerHTML=r.length?r.map(p=>{const v=prices(p),lo=Math.min(...v),hi=Math.max(...v),n=pend[p.id]||1;
     return `<div class="card"><button class="picbtn" data-a="open" data-id="${p.id}" aria-label="Compare prices for ${esc(p.name)}">${thumb(p)}</button>
       <button class="nm" data-a="open" data-id="${p.id}">${esc(p.name)}</button>
-      <div class="meta">${p.size?esc(p.size)+", ":""}${Object.keys(p.offers).length} stores</div>
+      <div class="meta">${p.size?esc(p.size)+", ":""}${Object.keys(p.offers).length} stores${p.alt?` <span class="plusalt">+${Object.keys(p.alt).length} other size</span>`:""}</div>
       <div class="from">${fmt(lo)} <small>${hi>lo?"to "+fmt(hi):"everywhere"}</small></div>
       <div class="row"><span class="qty"><button data-a="dec" data-id="${p.id}" aria-label="Fewer">−</button><span>${n}</span><button data-a="inc" data-id="${p.id}" aria-label="More">+</button></span>
       <button class="add" data-a="add" data-id="${p.id}">Add</button></div></div>`}).join("")
@@ -621,15 +629,15 @@ function runSearch(keepScroll){
 }
 const fee=()=>Math.max(0,+$("fee").value||0);
 function bill(s){
-  let sub=0,miss=[],missCost=0,have=0;
-  list.forEach(([id,n])=>{const p=P[id],o=p.offers[s];if(o){sub+=o.p*n;have++}else{miss.push(id);missCost+=median(prices(p))*n}});
-  const f=sub>0?fee():0;return{s,sub,f,miss,missCost,have,fair:sub+f+missCost};
+  let sub=0,miss=[],missCost=0,have=0,swap=[];
+  list.forEach(([id,n])=>{const p=P[id],o=eff(p,s);if(o){sub+=o.p*n;have++;if(o.alt)swap.push(id)}else{miss.push(id);missCost+=median(prices(p))*n}});
+  const f=sub>0?fee():0;return{s,sub,f,miss,missCost,have,swap,fair:sub+f+missCost};
 }
 function bestSplit(){
   let best=null;
   for(let i=0;i<STORES.length;i++)for(let j=i+1;j<STORES.length;j++){
     const a=STORES[i].id,b=STORES[j].id;let sa=0,sb=0,ok=true;
-    list.forEach(([id,n])=>{const oa=P[id].offers[a],ob=P[id].offers[b];if(!oa&&!ob){ok=false;return}if(!ob||(oa&&oa.p<=ob.p))sa+=oa.p*n;else sb+=ob.p*n});
+    list.forEach(([id,n])=>{const oa=eff(P[id],a),ob=eff(P[id],b);if(!oa&&!ob){ok=false;return}if(!ob||(oa&&oa.p<=ob.p))sa+=oa.p*n;else sb+=ob.p*n});
     if(!ok||!sa||!sb)continue;const t=sa+sb+2*fee();if(!best||t<best.total)best={a,b,total:t};
   }return best;
 }
@@ -643,26 +651,28 @@ function drawBasket(){
     :`<div class="empty" style="padding:18px 0">Your list is empty. Search above and add what you buy.</div>`;
   if(!list.length){$("bills").innerHTML="";$("verdict").hidden=true;return}
   $("verdict").hidden=false;
-  const bills=STORES.map(s=>bill(s.id)).sort((a,b)=>a.fair-b.fair), best=bills[0], worst=bills[bills.length-1];
+  const bills=STORES.map(s=>bill(s.id)).sort((a,b)=>a.miss.length-b.miss.length||a.fair-b.fair), best=bills[0];   // a store that can't supply the whole list never "wins"
+  const peers=bills.filter(b=>b.miss.length===best.miss.length), worst=peers[peers.length-1];
   $("bills").innerHTML=bills.map((b,i)=>`<div class="receipt ${i===0?"win":""}">
     <div class="head"><span class="store"><i style="background:${col(b.s)}"></i>${SNAME[b.s]}</span><span class="total">${fmt(b.fair)}</span></div>
     ${i===0?`<div class="stamp">Sab se sasta<small>lowest bill</small></div>`:""}
     <div class="lines">
-      <div><span>${b.have} of ${list.length} items</span><b>${fmt(b.sub)}</b></div>
+      <div><span>${b.have} of ${list.length} items${b.swap.length?`, ${b.swap.length} in another pack size`:""}</span><b>${fmt(b.sub)}</b></div>
       <div><span>Delivery</span><b>${b.f?fmt(b.f):"–"}</b></div>
-      ${b.miss.length?`<div class="miss"><span>Not on ${SNAME[b.s]}'s site: ${b.miss.map(id=>esc(P[id].name.replace(/\s*\(cheapest brand\)/,"").split(",")[0])).join(", ")}. Counted at the usual price elsewhere.</span><b class="miss">+${fmt(b.missCost)}</b></div>`:""}
+      ${b.miss.length?`<div class="miss"><span>${SNAME[b.s]} doesn't sell ${b.miss.length>1?"these":"this"} online in any size: ${b.miss.map(id=>esc(P[id].name.replace(/\s*\(cheapest brand\)/,"").split(",")[0])).join(", ")}. Added at the typical Karachi price so totals stay fair.</span><b class="miss">+${fmt(b.missCost)}</b></div>`:""}
     </div>
     <div class="more"><button class="textbtn" data-detail="${b.s}">See every item</button>${i?`<span class="gap">${fmt(b.fair-best.fair)} more</span>`:""}</div>
-    <div class="detail" id="det-${b.s}" hidden>${list.map(([id,n])=>{const o=P[id].offers[b.s];return o?`<div><span>${n} × ${esc(o.n||P[id].name)}</span><span>${fmt(o.p*n)}</span></div>`:`<div class="miss"><span>${n} × ${esc(P[id].name)}</span><span>not listed</span></div>`}).join("")}</div>
+    <div class="detail" id="det-${b.s}" hidden>${list.map(([id,n])=>{const o=eff(P[id],b.s);return o?(o.alt?`<div class="swapln"><span>${n} × ${esc(P[id].name)}<small>Sold as ${esc(o.n)} (${esc(o.sz)}, ${fmt(o.pp)}), priced for your size</small></span><span>≈ ${fmt(o.p*n)}</span></div>`:`<div><span>${n} × ${esc(o.n||P[id].name)}</span><span>${fmt(o.p*n)}</span></div>`):`<div class="miss"><span>${n} × ${esc(P[id].name)}</span><span>not listed</span></div>`}).join("")}</div>
   </div>`).join("");
   let cherry=0;const used=new Set();
-  list.forEach(([id,n])=>{const o=Object.entries(P[id].offers).sort((a,b)=>a[1].p-b[1].p)[0];cherry+=o[1].p*n;used.add(o[0])});
+  list.forEach(([id,n])=>{const o=STORES.map(s=>[s.id,eff(P[id],s.id)]).filter(x=>x[1]).sort((a,b)=>a[1].p-b[1].p)[0];cherry+=o[1].p*n;used.add(o[0])});
   const split=bestSplit(),save=split?best.fair-split.total:0,thr=+$("thr").value;
   $("verdict").innerHTML=`<h3>Should you shop around?</h3>
     <div class="vrow"><span>Every item from its own cheapest store, ${used.size} orders</span><b>${fmt(cherry+used.size*fee())}</b></div>
     <div class="vrow"><span>Everything from ${SNAME[best.s]}</span><b>${fmt(best.fair)}</b></div>
-    <div class="vrow"><span>Everything from ${SNAME[worst.s]}</span><b>${fmt(worst.fair)}</b></div>
-    <p>One order from ${SNAME[best.s]} saves you <span class="big">${fmt(worst.fair-best.fair)}</span> against ${SNAME[worst.s]}.</p>
+    ${peers.length>1?`<div class="vrow"><span>Everything from ${SNAME[worst.s]}</span><b>${fmt(worst.fair)}</b></div>`:""}
+    ${peers.length>1?`<p>One order from ${SNAME[best.s]} saves you <span class="big">${fmt(worst.fair-best.fair)}</span> against ${SNAME[worst.s]}.</p>`
+      :`<p>Only ${SNAME[best.s]} ${best.miss.length?"comes closest to having":"has"} everything on your list online. ${bills.length>1?`The others are missing ${bills.slice(1).map(b=>`${b.miss.length} at ${SNAME[b.s]}`).join(", ")}.`:""}</p>`}
     ${split?`<div class="split"><b>Best two-store split</b><span class="plus">PLUS</span>
       <p style="margin-top:6px">${SNAME[split.a]} + ${SNAME[split.b]} comes to ${fmt(split.total)} with both deliveries. ${save>=thr?`That saves ${fmt(save)}, so it's worth splitting.`:save>0?`That saves only ${fmt(save)}, under your Rs ${thr} limit. Stick to one store.`:`That costs more once both deliveries are added. Stick to one store.`}</p></div>`:""}`;
 }
@@ -687,6 +697,11 @@ function drawCompare(id){
         <span class="price">${fmt(o.p)}</span>
         <span class="track"><span style="width:${(o.p/hi*100).toFixed(1)}%;background:${col(s)}"></span></span>
         ${o.n||o.u?`<span class="sub">${o.n?esc(o.n):""}${o.n&&o.u?" · ":""}${o.u?`<a href="${esc(o.u)}" target="_blank" rel="noopener">Open in ${SNAME[s]}'s shop</a>`:""}</span>`:""}
+      </div>`).join("")}${Object.entries(p.alt||{}).sort((a,b)=>a[1].p-b[1].p).map(([s,o])=>`<div class="step altstep">
+        <span class="name"><i style="background:${col(s)}"></i>${SNAME[s]} <span class="tag size">Other size</span></span>
+        <span class="price">≈ ${fmt(o.p)}</span>
+        <span class="track"><span style="width:${Math.min(100,o.p/hi*100).toFixed(1)}%;background:${col(s)}"></span></span>
+        <span class="sub">Doesn't list ${esc(p.size||"this size")}. Sells ${esc(o.n)} (${esc(o.sz)}) for ${fmt(o.pp)}, which works out to ≈ ${fmt(o.p)} for ${esc(p.size||"the same amount")}.</span>
       </div>`).join("")}</div>
       ${history(p)}
       <div class="note">${days<2?`Price tracking for this product started on ${nice(D.days[0])}. Each day adds a point to its history, and the four-week price forecast turns on after 30 days.`:`${days} days of price history so far. The four-week forecast turns on after 30 days.`}</div>
