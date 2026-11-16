@@ -354,6 +354,7 @@ body::before{content:"";position:absolute;left:0;right:0;top:0;height:140px;back
 .tag.size{background:#e9e6ff;color:#3b2fb8}
 .detail>div>span:last-child{white-space:nowrap;padding-left:10px}
 .swapln small{display:block;color:var(--ink-2);font-size:12px;margin-top:2px}
+.tag.old{background:#fff1d6;color:#8a5a00;font-weight:700}
 </style>
 </head>
 <body>
@@ -511,13 +512,15 @@ fetch("data/products.json").then(r=>r.ok?r:fetch("products.json")).then(r=>{if(!
 function init(data){
   D=data; data.products.forEach(p=>P[p.id]=p);
   STORES=data.stores.filter(s=>data.products.some(p=>p.offers[s.id])); STORES.forEach(s=>SNAME[s.id]=s.name);
+  const stale=STORES.filter(s=>s.asOf), staleTag=id=>{const s=STORES.find(x=>x.id===id);return s&&s.asOf?` <span class="tag old">Prices from ${nice(s.asOf)}</span>`:""};
+  window.staleTag=staleTag;
   const last=data.index[data.index.length-1];
   const ranked=STORES.map(s=>[s.id,last[s.id]]).filter(x=>x[1]).sort((a,b)=>a[1]-b[1]);
-  $("today").innerHTML=`<span class="storerow">${STORES.map(s=>`<span class="chip" style="background:${col(s.id)}">${s.name}</span>`).join("")}</span>
+  $("today").innerHTML=`<span class="storerow">${STORES.map(s=>`<span class="chip" style="background:${col(s.id)}"${s.asOf?` title="Couldn't read ${s.name} today. Showing its prices from ${nice(s.asOf)}."`:""}>${s.name}${s.asOf?" *":""}</span>`).join("")}</span>
     <span>Cheapest basket today: <b>${SNAME[ranked[0][0]]}</b></span>`;
   $("liveTxt").textContent=`Prices checked ${nice(data.days[data.days.length-1])}`;
   buildHome(ranked);
-  $("footer").textContent=`Prices collected ${nice(data.days[data.days.length-1])} from the online shops of ${STORES.map(s=>s.name).join(", ")} (Karachi branches). ${data.totals.collected.toLocaleString()} products read, ${data.totals.matched.toLocaleString()} matched across stores.`;
+  $("footer").textContent=`Prices collected ${nice(data.days[data.days.length-1])} from the online shops of ${STORES.map(s=>s.name).join(", ")} (Karachi branches). ${data.totals.collected.toLocaleString()} products read, ${data.totals.matched.toLocaleString()} matched across stores.${stale.length?` * ${stale.map(s=>`${s.name}'s site couldn't be read on the latest run, so its prices are from ${nice(s.asOf)}`).join("; ")}.`:""}`;
   setupBasket(); setupCompare(); drawIndex(); setupBiz(); drawHow();
   route();
 }
@@ -654,7 +657,7 @@ function drawBasket(){
   const bills=STORES.map(s=>bill(s.id)).sort((a,b)=>a.miss.length-b.miss.length||a.fair-b.fair), best=bills[0];   // a store that can't supply the whole list never "wins"
   const peers=bills.filter(b=>b.miss.length===best.miss.length), worst=peers[peers.length-1];
   $("bills").innerHTML=bills.map((b,i)=>`<div class="receipt ${i===0?"win":""}">
-    <div class="head"><span class="store"><i style="background:${col(b.s)}"></i>${SNAME[b.s]}</span><span class="total">${fmt(b.fair)}</span></div>
+    <div class="head"><span class="store"><i style="background:${col(b.s)}"></i>${SNAME[b.s]}${staleTag(b.s)}</span><span class="total">${fmt(b.fair)}</span></div>
     ${i===0?`<div class="stamp">Sab se sasta<small>lowest bill</small></div>`:""}
     <div class="lines">
       <div><span>${b.have} of ${list.length} items${b.swap.length?`, ${b.swap.length} in another pack size`:""}</span><b>${fmt(b.sub)}</b></div>
@@ -693,7 +696,7 @@ function drawCompare(id){
       ${offers.length>1&&hi>lo?`<p class="lead" style="font-size:20px;margin-top:14px">Buy it at <span style="color:var(--leaf)">${SNAME[offers[0][0]]}</span> and save ${fmt(hi-lo)}, ${((hi-lo)/hi*100).toFixed(0)}% less than ${SNAME[offers[offers.length-1][0]]}.</p>`:""}
       <button class="add" style="margin-top:14px;width:100%" id="cmpAdd">Add to my list</button></div>
     <div class="panel"><h3>Today's prices</h3><div class="ladder">${offers.map(([s,o],i)=>`<div class="step">
-        <span class="name"><i style="background:${col(s)}"></i>${SNAME[s]}${i===0?' <span class="tag down">Cheapest</span>':""}${o.r?` <span class="tag up">Sale, was ${fmt(o.r)}</span>`:""}</span>
+        <span class="name"><i style="background:${col(s)}"></i>${SNAME[s]}${staleTag(s)}${i===0?' <span class="tag down">Cheapest</span>':""}${o.r?` <span class="tag up">Sale, was ${fmt(o.r)}</span>`:""}</span>
         <span class="price">${fmt(o.p)}</span>
         <span class="track"><span style="width:${(o.p/hi*100).toFixed(1)}%;background:${col(s)}"></span></span>
         ${o.n||o.u?`<span class="sub">${o.n?esc(o.n):""}${o.n&&o.u?" · ":""}${o.u?`<a href="${esc(o.u)}" target="_blank" rel="noopener">Open in ${SNAME[s]}'s shop</a>`:""}</span>`:""}
