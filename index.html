@@ -648,7 +648,8 @@ let toastT=null;
 function toast(msg){const t=$("toast");t.textContent=msg;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,1800)}
 
 // the data can sit in data/ or right next to this page (simpler to upload on GitHub's website)
-fetch("data/products.json").then(r=>r.ok?r:fetch("products.json")).then(r=>{if(!r.ok)throw new Error("HTTP "+r.status);return r.json()}).then(init)
+const fresh={cache:"no-cache"};   // always ask GitHub whether there are newer prices
+fetch("data/products.json",fresh).then(r=>r.ok?r:fetch("products.json",fresh)).then(r=>{if(!r.ok)throw new Error("HTTP "+r.status);return r.json()}).then(init)
   .catch(e=>{$("today").textContent="Prices could not be loaded ("+e.message+"). Run pipeline/export_site.py, then reload."});
 
 function init(data){
@@ -1053,14 +1054,15 @@ function productMoves(p){
 }
 function indexTrend(){
   const I=D.index,O=D.outlook||{};if(I.length<2){$("idxTrend").innerHTML="";return}
-  const t0=new Date(I[0].day),dd=d=>(new Date(d)-t0)/864e5,last=dd(I[I.length-1].day),span=last+14;
+  const has=Object.keys(O).some(s=>SNAME[s]);
+  const t0=new Date(I[0].day),dd=d=>(new Date(d)-t0)/864e5,last=dd(I[I.length-1].day),span=last+(has?14:0);
   const W=760,H=280,m={l:64,r:150,t:16,b:28};let lo=1e12,hi=0;
   STORES.forEach(s=>{I.forEach(r=>{if(r[s.id]){lo=Math.min(lo,r[s.id]);hi=Math.max(hi,r[s.id])}});const o=O[s.id];if(o){lo=Math.min(lo,o.in14-o.range);hi=Math.max(hi,o.in14+o.range)}});
   const pad=(hi-lo)*.08;lo-=pad;hi+=pad;
   const X=d=>m.l+d/span*(W-m.l-m.r),Y=v=>m.t+(1-(v-lo)/(hi-lo))*(H-m.t-m.b);
   let g=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Basket Index by store over time, with a two-week outlook" style="width:100%;height:auto">`;
   for(let k=0;k<=3;k++){const v=lo+(hi-lo)*k/3;g+=`<line x1="${m.l}" x2="${W-m.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="#e6e3d8"/><text x="${m.l-8}" y="${Y(v)+4}" text-anchor="end" font-size="12" fill="#6b6553">${Math.round(v).toLocaleString()}</text>`}
-  g+=`<rect x="${X(last)}" y="${m.t}" width="${X(span)-X(last)}" height="${H-m.t-m.b}" fill="#fff6d1"/><text x="${(X(last)+X(span))/2}" y="${m.t+14}" text-anchor="middle" font-size="12" font-weight="700" fill="#8a6d00">Outlook</text>`;
+  if(has)g+=`<rect x="${X(last)}" y="${m.t}" width="${X(span)-X(last)}" height="${H-m.t-m.b}" fill="#fff6d1"/><text x="${(X(last)+X(span))/2}" y="${m.t+14}" text-anchor="middle" font-size="12" font-weight="700" fill="#8a6d00" style="user-select:none">Next 2 weeks</text>`;
   g+=`<text x="${m.l}" y="${H-8}" font-size="12" fill="#6b6553">${nice(I[0].day).slice(0,-5)}</text><text x="${X(last)}" y="${H-8}" text-anchor="middle" font-size="12" fill="#6b6553">${nice(I[I.length-1].day).slice(0,-5)}</text>`;
   const ends=[];
   STORES.forEach(s=>{const pts=I.filter(r=>r[s.id]).map(r=>[dd(r.day),r[s.id]]);if(!pts.length)return;
